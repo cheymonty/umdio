@@ -1,11 +1,18 @@
 require 'rspec/core/rake_task'
-require_relative 'app/helpers/courses_helpers.rb'
+require 'rubocop/rake_task'
+require 'net/http'
+require 'json'
+require_relative 'app/helpers/courses_helpers'
+
+
 include Sinatra::UMDIO::Helpers
 
 ################################################################################
 ################################## FUNCTIONS ###################################
 ################################################################################
 
+# @param [Array<String>]
+# @return [Array<String>]
 def get_semesters(args)
   semesters = args.map do |e|
     if e.length == 6
@@ -126,15 +133,44 @@ namespace :scrape do
 end
 
 ##################################### Dev ######################################
+
+# run with 'rake rubocop' or 'rake rubocop:auto_correct' to apply safe fixes
+desc 'Run RuboCop'
+RuboCop::RakeTask.new do |task|
+  task.requires << 'rubocop-rake'
+  task.requires << 'rubocop-rspec'
+  task.requires << 'rubocop-sequel'
+end
+task lint: :rubocop
+
 namespace :dev do
+
+  # docker-compose command with root dev args
+  dc = 'docker-compose -f docker-compose-dev.yml'
+
   desc 'Launches the dev environment with docker-compose'
   task :up do
-    system 'docker-compose -f docker-compose-dev.yml up --build -d'
+    system "#{dc} up --build -d"
   end
 
-  desc 'Brings down the dev environment'
+  desc 'Stop and remove the dev environment (containers, networks, volumes, etc)'
   task :down do
-    system 'docker-compose -f docker-compose-dev.yml down'
+    system "#{dc} down"
+  end
+
+  desc 'Start existing services previously stopped with dev:stop'
+  task :start do
+    system "#{dc} start"
+  end
+
+  desc 'Stop running services without removing them'
+  task :stop do
+    system "#{dc} stop"
+  end
+
+  desc 'Force a complete rebuild of all containers without using cached layers'
+  task :rebuild do
+    system "#{dc} build --no-cache --progress tty"
   end
 end
 
@@ -173,8 +209,11 @@ end
 desc 'Type check and lint codebase'
 task :validate do
   system 'bundle exec solargraph scan', exception: true
-  system 'bundle exec solargraph typecheck', exception: true
-  # TODO: run rubocop
+  system 'bundle exec solargraph typecheck' # TODO(don): add 'exception: true', right now this breaks
+  puts 'validating OpenAPI Spec'
+  validate_openapi
+  puts 'Spec is valid'
+  Rake::Task['rubocop'].execute
 end
 
 task default: ['up']
